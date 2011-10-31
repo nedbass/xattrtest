@@ -42,10 +42,10 @@ static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
 
 static int
-usage(void) {
+usage(int argc, char **argv) {
 	fprintf(stderr,
-	"usage: xattrset [-hvycd] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
-	"       [-s <bytes>] [-p <path>] [-t <script> ]\n");
+	"usage: %s [-hvycd] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
+	"       [-s <bytes>] [-p <path>] [-t <script> ]\n", argv[0]);
 	fprintf(stderr,
 	"  --help        -h           This help\n"
 	"  --verbose     -v           Increase verbosity\n"
@@ -70,7 +70,7 @@ parse_args(int argc, char **argv)
 	while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
-			return usage();
+			return usage(argc, argv);
 		case 'v':
 			verbose++;
 			break;
