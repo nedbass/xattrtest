@@ -9,11 +9,12 @@
 #include <errno.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <linux/limits.h>
 
-static const char shortopts[] = "hvyn:f:x:s:p:";
+static const char shortopts[] = "hvycdn:f:x:s:p:t:";
 static const struct option longopts[] = {
 	{ "help",	no_argument,		0,	'h' },
 	{ "verbose",	no_argument,		0,	'v' },
@@ -23,30 +24,40 @@ static const struct option longopts[] = {
 	{ "xattrs",	required_argument,	0,	'x' },
 	{ "size",	required_argument,	0,	's' },
 	{ "path",	required_argument,	0,	'p' },
+	{ "synccaches", no_argument,		0,	'c' },
+	{ "dropcaches",	no_argument,		0,	'd' },
+	{ "script",	required_argument,	0,	't' },
 	{ 0,		0,			0,	0   }
 };
 
 static int verbose = 0;
 static int verify = 0;
+static int synccaches = 0;
+static int dropcaches = 0;
 static int nth = 0;
 static int files = 1000;
 static int xattrs = 1;
 static int size  = 1;
 static char path[PATH_MAX] = "/tmp/xattrtest";
+static char script[PATH_MAX] = "/bin/true";
 
 static int
 usage(void) {
-	fprintf(stderr, "usage: xattrset [-hvy] [-n <nth>] [-f <files>] "
-		"[-x <xattrs>] [-s <bytes>] [-p <path>]\n");
 	fprintf(stderr,
-	"  --help      -h           This help\n"
-	"  --verbose   -v           Increase verbosity\n"
-	"  --verify    -y           Verify xattr contents\n"
-	"  --nth       -n <nth>     Print every nth file\n"
-	"  --files     -f <files>   Set xattrs on N files\n"
-	"  --xattrs    -x <xattrs>  Set N xattrs on each file\n"
-	"  --size      -s <bytes>   Set N byters per xattr\n"
-	"  --path      -p <path>    Path to files\n\n");
+	"usage: xattrset [-hvycd] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
+	"       [-s <bytes>] [-p <path>] [-t <script> ]\n");
+	fprintf(stderr,
+	"  --help        -h           This help\n"
+	"  --verbose     -v           Increase verbosity\n"
+	"  --verify      -y           Verify xattr contents\n"
+	"  --nth         -n <nth>     Print every nth file\n"
+	"  --files       -f <files>   Set xattrs on N files\n"
+	"  --xattrs      -x <xattrs>  Set N xattrs on each file\n"
+	"  --size        -s <bytes>   Set N byters per xattr\n"
+	"  --path        -p <path>    Path to files\n"
+	"  --synccaches  -c           Sync caches between phases\n"
+	"  --dropcaches  -d           Drop caches between phases\n"
+	"  --script      -t <script>  Exec script between phases\n\n");
 
 	return (0);
 }
@@ -81,6 +92,15 @@ parse_args(int argc, char **argv)
 		case 'p':
 			strncpy(path, optarg, PATH_MAX);
 			break;
+		case 'c':
+			synccaches = 1;
+			break;
+		case 'd':
+			dropcaches = 1;
+			break;
+		case 't':
+			strncpy(script, optarg, PATH_MAX);
+			break;
 		default:
 			fprintf(stderr, "Unknown option -%c\n", c);
 			break;
@@ -88,13 +108,16 @@ parse_args(int argc, char **argv)
 	}
 
 	if (verbose) {
-		fprintf(stdout, "verbose: %d\n", verbose);
-		fprintf(stdout, "verify:  %d\n", verify);
-		fprintf(stdout, "nth:     %d\n", nth);
-		fprintf(stdout, "files:   %d\n", files);
-		fprintf(stdout, "xattrs:  %d\n", xattrs);
-		fprintf(stdout, "size:    %d\n", size);
-		fprintf(stdout, "path:    %s\n", path);
+		fprintf(stdout, "verbose:    %d\n", verbose);
+		fprintf(stdout, "verify:     %d\n", verify);
+		fprintf(stdout, "nth:        %d\n", nth);
+		fprintf(stdout, "files:      %d\n", files);
+		fprintf(stdout, "xattrs:     %d\n", xattrs);
+		fprintf(stdout, "size:       %d\n", size);
+		fprintf(stdout, "path:       %s\n", path);
+		fprintf(stdout, "synccaches: %d\n", synccaches);
+		fprintf(stdout, "dropcaches: %d\n", dropcaches);
+		fprintf(stdout, "script:     %s\n", script);
 		fprintf(stdout, "%s", "\n");
 	}
 
@@ -106,8 +129,6 @@ drop_caches(void)
 {
 	char file[] = "/proc/sys/vm/drop_caches";
 	int fd, rc;
-
-	sync();
 
 	fd = open(file, O_WRONLY);
 	if (fd == -1) {
@@ -127,6 +148,61 @@ drop_caches(void)
 		fprintf(stderr, "Error %d: close(%d)\n", errno, fd);
 		return (errno);
 	}
+
+	return (0);
+}
+
+static int
+run_process(const char *path, char *argv[])
+{
+	pid_t pid;
+	int rc, devnull_fd;
+
+	pid = vfork();
+	if (pid == 0) {
+		devnull_fd = open("/dev/null", O_WRONLY);
+
+		if (devnull_fd < 0)
+			_exit(-1);
+
+		(void) dup2(devnull_fd, STDOUT_FILENO);
+		(void) dup2(devnull_fd, STDERR_FILENO);
+		close(devnull_fd);
+
+		(void) execvp(path, argv);
+		_exit(-1);
+	} else if (pid > 0) {
+		int status;
+
+		while ((rc = waitpid(pid, &status, 0)) == -1 && errno == EINTR);
+
+		if (rc < 0 || !WIFEXITED(status))
+			return (-1);
+
+		return WEXITSTATUS(status);
+	}
+
+	return (-1);
+}
+
+static int
+post_hook(char *phase)
+{
+	char *argv[3] = { script, phase, (char *)0 };
+	int rc;
+
+	if (synccaches)
+		sync();
+
+	if (dropcaches) {
+		rc = drop_caches();
+		if (rc)
+			return (rc);
+	}
+
+	rc = run_process(script, argv);
+	if (rc)
+		return (rc);
 
 	return (0);
 }
@@ -204,12 +280,12 @@ create_files(void)
 		}
 	}
 
-	rc = drop_caches();
-
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "create:   %d.%d seconds\n",
 	    delta.tv_sec, delta.tv_usec);
+
+	rc = post_hook("post");
 out:
 	if (file)
 		free(file);
@@ -264,12 +340,12 @@ setxattrs(void)
 		}
 	}
 
-	rc = drop_caches();
-
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "setxattr: %d.%d seconds\n",
 	    delta.tv_sec, delta.tv_usec);
+
+	rc = post_hook("post");
 out:
 	if (file)
 		free(file);
@@ -345,12 +421,12 @@ getxattrs(void)
 		}
 	}
 
-	rc = drop_caches();
-
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "getxattr: %d.%d seconds\n",
 	    delta.tv_sec, delta.tv_usec);
+
+	rc = post_hook("post");
 out:
 	if (file)
 		free(file);
@@ -395,12 +471,12 @@ unlink_files(void)
 		}
 	}
 
-	rc = drop_caches();
-
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "unlink:   %d.%d seconds\n",
 	    delta.tv_sec, delta.tv_usec);
+
+	rc = post_hook("post");
 out:
 	if (file)
 		free(file);
