@@ -412,7 +412,7 @@ getxattrs(void)
 				goto out;
 			}
 
-			if (verify && memcpy(verify_value, value, size)) {
+			if (verify && memcmp(verify_value, value, size)) {
 				fprintf(stderr, "Error %d: verify failed\n"
 				    "verify: %s\nvalue:  %s\n", EINVAL,
 				    verify_value, value);
