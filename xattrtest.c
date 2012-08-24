@@ -1,5 +1,5 @@
 /*
- * On N files, set M attrs, of size O.
+ * On N files, set M attrs, of size S.
  */
 
 #include <stdlib.h>
@@ -408,7 +408,7 @@ getxattrs(void)
 			rc = lgetxattr(file, name, value, size);
 			if ((rc == -1) || (rc != size)) {
 				fprintf(stderr, "Error %d: lgetxattr(%s, %s, "
-				    "..., %d)\n", errno, path, name, size);
+				    "..., %d)\n", errno, file, name, size);
 				goto out;
 			}
 
