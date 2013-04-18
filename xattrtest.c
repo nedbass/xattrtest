@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <linux/limits.h>
 
-static const char shortopts[] = "hvycdn:f:x:s:p:t:";
+static const char shortopts[] = "hvycdn:f:x:s:p:t:e:r";
 static const struct option longopts[] = {
 	{ "help",	no_argument,		0,	'h' },
 	{ "verbose",	no_argument,		0,	'v' },
@@ -27,6 +27,8 @@ static const struct option longopts[] = {
 	{ "synccaches", no_argument,		0,	'c' },
 	{ "dropcaches",	no_argument,		0,	'd' },
 	{ "script",	required_argument,	0,	't' },
+	{ "seed",	required_argument,	0,	'e' },
+	{ "random",	no_argument,		0,	'r' },
 	{ 0,		0,			0,	0   }
 };
 
@@ -38,6 +40,7 @@ static int nth = 0;
 static int files = 1000;
 static int xattrs = 1;
 static int size  = 1;
+static int size_is_random = 0;
 static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
 
@@ -57,7 +60,9 @@ usage(int argc, char **argv) {
 	"  --path        -p <path>    Path to files\n"
 	"  --synccaches  -c           Sync caches between phases\n"
 	"  --dropcaches  -d           Drop caches between phases\n"
-	"  --script      -t <script>  Exec script between phases\n\n");
+	"  --script      -t <script>  Exec script between phases\n"
+	"  --seed        -e <seed>    Random seed value\n"
+	"  --random      -r           Randomly sized xattrs [16-size]\n\n");
 
 	return (0);
 }
@@ -65,6 +70,7 @@ usage(int argc, char **argv) {
 static int
 parse_args(int argc, char **argv)
 {
+	long seed = time(NULL);
 	int c;
 
 	while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
@@ -101,11 +107,19 @@ parse_args(int argc, char **argv)
 		case 't':
 			strncpy(script, optarg, PATH_MAX);
 			break;
+		case 'e':
+			seed = strtol(optarg, NULL, 0);
+			break;
+		case 'r':
+			size_is_random = 1;
+			break;
 		default:
 			fprintf(stderr, "Unknown option -%c\n", c);
 			break;
 		}
 	}
+
+	srandom(seed);
 
 	if (verbose) {
 		fprintf(stdout, "verbose:    %d\n", verbose);
@@ -118,6 +132,8 @@ parse_args(int argc, char **argv)
 		fprintf(stdout, "synccaches: %d\n", synccaches);
 		fprintf(stdout, "dropcaches: %d\n", dropcaches);
 		fprintf(stdout, "script:     %s\n", script);
+		fprintf(stdout, "seed:       %ld\n", seed);
+		fprintf(stdout, "random:     %d\n", size_is_random);
 		fprintf(stdout, "%s", "\n");
 	}
 
@@ -296,20 +312,18 @@ out:
 static int
 setxattrs(void)
 {
-	int i, j, rc = 0;
-	char name[16];
+	int i, j, rnd_size = size, shift, rc = 0;
+	char name[XATTR_NAME_MAX];
 	char *value = NULL;
 	char *file = NULL;
 	struct timeval start, stop, delta;
 
-	value = malloc(size);
+	value = malloc(XATTR_SIZE_MAX);
 	if (value == NULL) {
 		rc = ENOMEM;
 		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr value\n",
-			rc, size);
+			rc, XATTR_SIZE_MAX);
 		goto out;
-	} else  {
-		memset(value, 'x', size);
 	}
 
 	file = malloc(PATH_MAX);
@@ -329,12 +343,17 @@ setxattrs(void)
 			fprintf(stdout, "setxattr: %s\n", file);
 
 		for (j = 1; j <= xattrs; j++) {
-			(void) sprintf(name, "user.%d", j);
+			if (size_is_random)
+				rnd_size = (random() % (size - 16)) + 16;
 
-			rc = lsetxattr(file, name, value, size, 0);
+			(void) sprintf(name, "user.%d", j);
+			shift = sprintf(value, "size=%d ", rnd_size);
+			memset(value + shift, 'x', XATTR_SIZE_MAX - shift);
+
+			rc = lsetxattr(file, name, value, rnd_size, 0);
 			if (rc == -1) {
 				fprintf(stderr, "Error %d: lsetxattr(%s, %s, "
-				    "..., %d)\n", errno, file, name, size);
+				    "..., %d)\n", errno, file, name, rnd_size);
 				goto out;
 			}
 		}
@@ -359,31 +378,27 @@ out:
 static int
 getxattrs(void)
 {
-	int i, j, rc = 0;
-	char name[16];
+	int i, j, rnd_size, shift, rc = 0;
+	char name[XATTR_NAME_MAX];
 	char *verify_value = NULL;
 	char *value = NULL;
 	char *file = NULL;
 	struct timeval start, stop, delta;
 
-	verify_value = malloc(size);
+	verify_value = malloc(XATTR_SIZE_MAX);
 	if (verify_value == NULL) {
 		rc = ENOMEM;
 		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr verify\n",
-			rc, size);
+			rc, XATTR_SIZE_MAX);
 		goto out;
-	} else  {
-		memset(verify_value, 'x', size);
 	}
 
-	value = malloc(size);
+	value = malloc(XATTR_SIZE_MAX);
 	if (value == NULL) {
 		rc = ENOMEM;
 		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr value\n",
-			rc, size);
+			rc, XATTR_SIZE_MAX);
 		goto out;
-	} else  {
-		memset(value, 'x', size);
 	}
 
 	file = malloc(PATH_MAX);
@@ -405,18 +420,28 @@ getxattrs(void)
 		for (j = 1; j <= xattrs; j++) {
 			(void) sprintf(name, "user.%d", j);
 
-			rc = lgetxattr(file, name, value, size);
-			if ((rc == -1) || (rc != size)) {
+			rc = lgetxattr(file, name, value, XATTR_SIZE_MAX);
+			if (rc == -1) {
 				fprintf(stderr, "Error %d: lgetxattr(%s, %s, "
-				    "..., %d)\n", errno, file, name, size);
+				    "..., %d)\n", errno, file, name,
+				    XATTR_SIZE_MAX);
 				goto out;
 			}
 
-			if (verify && memcmp(verify_value, value, size)) {
-				fprintf(stderr, "Error %d: verify failed\n"
-				    "verify: %s\nvalue:  %s\n", EINVAL,
-				    verify_value, value);
-				goto out;
+			if (verify) {
+				sscanf(value, "size=%d [a-z]", &rnd_size);
+				shift = sprintf(verify_value, "size=%d ",
+				    rnd_size);
+				memset(verify_value + shift, 'x',
+				    XATTR_SIZE_MAX - shift);
+
+				if (rnd_size != rc ||
+				    memcmp(verify_value, value, rnd_size)) {
+					fprintf(stderr, "Error %d: verify "
+					    "failed\nverify: %s\nvalue:  %s\n",
+					    EINVAL, verify_value, value);
+					goto out;
+				}
 			}
 		}
 	}
