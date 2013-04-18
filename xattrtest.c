@@ -274,7 +274,7 @@ create_files(void)
 
 		rc = close(rc);
 		if (rc == -1) {
-			fprintf(stderr, "Error %d: close(%d)\n", errno);
+			fprintf(stderr, "Error %d: close(%d)\n", errno, rc);
 			rc = errno;
 			goto out;
 		}
@@ -283,7 +283,7 @@ create_files(void)
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "create:   %d.%d seconds\n",
-	    delta.tv_sec, delta.tv_usec);
+	    (int)delta.tv_sec, (int)delta.tv_usec);
 
 	rc = post_hook("post");
 out:
@@ -343,7 +343,7 @@ setxattrs(void)
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "setxattr: %d.%d seconds\n",
-	    delta.tv_sec, delta.tv_usec);
+	    (int)delta.tv_sec, (int)delta.tv_usec);
 
 	rc = post_hook("post");
 out:
@@ -424,7 +424,7 @@ getxattrs(void)
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "getxattr: %d.%d seconds\n",
-	    delta.tv_sec, delta.tv_usec);
+	    (int)delta.tv_sec, (int)delta.tv_usec);
 
 	rc = post_hook("post");
 out:
@@ -474,7 +474,7 @@ unlink_files(void)
 	(void) gettimeofday(&stop, NULL);
 	timeval_sub(&delta, &stop, &start);
 	fprintf(stdout, "unlink:   %d.%d seconds\n",
-	    delta.tv_sec, delta.tv_usec);
+	    (int)delta.tv_sec, (int)delta.tv_usec);
 
 	rc = post_hook("post");
 out:
