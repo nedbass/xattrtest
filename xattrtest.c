@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <linux/limits.h>
 
-static const char shortopts[] = "hvycdn:f:x:s:p:t:e:r";
+static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rk";
 static const struct option longopts[] = {
 	{ "help",	no_argument,		0,	'h' },
 	{ "verbose",	no_argument,		0,	'v' },
@@ -29,6 +29,7 @@ static const struct option longopts[] = {
 	{ "script",	required_argument,	0,	't' },
 	{ "seed",	required_argument,	0,	'e' },
 	{ "random",	no_argument,		0,	'r' },
+	{ "keep",	no_argument,		0,	'k' },
 	{ 0,		0,			0,	0   }
 };
 
@@ -41,13 +42,14 @@ static int files = 1000;
 static int xattrs = 1;
 static int size  = 1;
 static int size_is_random = 0;
+static int keep_files = 0;
 static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
 
 static int
 usage(int argc, char **argv) {
 	fprintf(stderr,
-	"usage: %s [-hvycd] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
+	"usage: %s [-hvycdk] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
 	"       [-s <bytes>] [-p <path>] [-t <script> ]\n", argv[0]);
 	fprintf(stderr,
 	"  --help        -h           This help\n"
@@ -62,7 +64,8 @@ usage(int argc, char **argv) {
 	"  --dropcaches  -d           Drop caches between phases\n"
 	"  --script      -t <script>  Exec script between phases\n"
 	"  --seed        -e <seed>    Random seed value\n"
-	"  --random      -r           Randomly sized xattrs [16-size]\n\n");
+	"  --random      -r           Randomly sized xattrs [16-size]\n"
+	"  --keep        -k           Don't unlink files\n\n");
 
 	return (0);
 }
@@ -113,6 +116,9 @@ parse_args(int argc, char **argv)
 		case 'r':
 			size_is_random = 1;
 			break;
+		case 'k':
+			keep_files = 1;
+			break;
 		default:
 			fprintf(stderr, "Unknown option -%c\n", c);
 			break;
@@ -134,6 +140,7 @@ parse_args(int argc, char **argv)
 		fprintf(stdout, "script:     %s\n", script);
 		fprintf(stdout, "seed:       %ld\n", seed);
 		fprintf(stdout, "random:     %d\n", size_is_random);
+		fprintf(stdout, "keep:       %d\n", keep_files);
 		fprintf(stdout, "%s", "\n");
 	}
 
@@ -530,9 +537,11 @@ main(int argc, char **argv)
 	if (rc)
 		return (rc);
 
-	rc = unlink_files();
-	if (rc)
-		return (rc);
+	if (!keep_files) {
+		rc = unlink_files();
+		if (rc)
+			return (rc);
+	}
 
 	return (0);
 }
