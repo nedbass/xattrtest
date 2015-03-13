@@ -117,6 +117,11 @@ parse_args(int argc, char **argv)
 			break;
 		case 's':
 			size = strtol(optarg, NULL, 0);
+			if (size > XATTR_SIZE_MAX) {
+				fprintf(stderr, "Error: the size may not be "
+				    "greater than %d\n", XATTR_SIZE_MAX);
+				rc = 1;
+			}
 			break;
 		case 'p':
 			strncpy(path, optarg, PATH_MAX);
@@ -148,7 +153,7 @@ parse_args(int argc, char **argv)
 			keep_files = 1;
 			break;
 		default:
-			fprintf(stderr, "Unknown option -%c\n", c);
+			rc = 1;
 			break;
 		}
 	}
@@ -187,20 +192,19 @@ drop_caches(void)
 
 	fd = open(file, O_WRONLY);
 	if (fd == -1) {
-		fprintf(stderr, "Error %d: open(\"%s\", O_WRONLY)\n",
-			errno, file);
+		ERROR("Error %d: open(\"%s\", O_WRONLY)\n", errno, file);
 		return (errno);
 	}
 
 	rc = write(fd, "3", 1);
 	if ((rc == -1) || (rc != 1)) {
-		fprintf(stderr, "Error %d: write(%d, \"3\", 1)\n", fd, errno);
+		ERROR("Error %d: write(%d, \"3\", 1)\n", errno, fd);
 		return (errno);
 	}
 
 	rc = close(fd);
 	if (rc == -1) {
-		fprintf(stderr, "Error %d: close(%d)\n", errno, fd);
+		ERROR("Error %d: close(%d)\n", errno, fd);
 		return (errno);
 	}
 
@@ -299,7 +303,7 @@ create_files(void)
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for file name\n",
+		ERROR("Error %d: malloc(%d) bytes for file name\n",
 			rc, PATH_MAX);
 		goto out;
 	}
@@ -314,14 +318,14 @@ create_files(void)
 
 		rc = unlink(file);
 		if ((rc == -1)  && (errno != ENOENT)) {
-			fprintf(stderr, "Error %d: unlink(%s)\n", errno, file);
+			ERROR("Error %d: unlink(%s)\n", errno, file);
 			rc = errno;
 			goto out;
 		}
 
 		rc = open(file, O_CREAT, 0644);
 		if (rc == -1) {
-			fprintf(stderr, "Error %d: open(%s, O_CREATE, 0644)\n",
+			ERROR("Error %d: open(%s, O_CREATE, 0644)\n",
 				errno, file);
 			rc = errno;
 			goto out;
@@ -329,7 +333,7 @@ create_files(void)
 
 		rc = close(rc);
 		if (rc == -1) {
-			fprintf(stderr, "Error %d: close(%d)\n", errno, rc);
+			ERROR("Error %d: close(%d)\n", errno, rc);
 			rc = errno;
 			goto out;
 		}
@@ -383,7 +387,7 @@ setxattrs(void)
 	value = malloc(XATTR_SIZE_MAX);
 	if (value == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr value\n",
+		ERROR("Error %d: malloc(%d) bytes for xattr value\n",
 			rc, XATTR_SIZE_MAX);
 		goto out;
 	}
@@ -391,7 +395,7 @@ setxattrs(void)
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for file name\n",
+		ERROR("Error %d: malloc(%d) bytes for file name\n",
 			rc, PATH_MAX);
 		goto out;
 	}
@@ -425,8 +429,8 @@ setxattrs(void)
 
 			rc = lsetxattr(file, name, value, rnd_size, 0);
 			if (rc == -1) {
-				fprintf(stderr, "Error %d: lsetxattr(%s, %s, "
-				    "..., %d)\n", errno, file, name, rnd_size);
+				ERROR("Error %d: lsetxattr(%s, %s, ..., %d)\n",
+				    errno, file, name, rnd_size);
 				goto out;
 			}
 		}
@@ -461,7 +465,7 @@ getxattrs(void)
 	verify_value = malloc(XATTR_SIZE_MAX);
 	if (verify_value == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr verify\n",
+		ERROR("Error %d: malloc(%d) bytes for xattr verify\n",
 			rc, XATTR_SIZE_MAX);
 		goto out;
 	}
@@ -469,7 +473,7 @@ getxattrs(void)
 	value = malloc(XATTR_SIZE_MAX);
 	if (value == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for xattr value\n",
+		ERROR("Error %d: malloc(%d) bytes for xattr value\n",
 			rc, XATTR_SIZE_MAX);
 		goto out;
 	}
@@ -477,7 +481,7 @@ getxattrs(void)
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for file name\n",
+		ERROR("Error %d: malloc(%d) bytes for file name\n",
 			rc, PATH_MAX);
 		goto out;
 	}
@@ -495,9 +499,8 @@ getxattrs(void)
 
 			rc = lgetxattr(file, name, value, XATTR_SIZE_MAX);
 			if (rc == -1) {
-				fprintf(stderr, "Error %d: lgetxattr(%s, %s, "
-				    "..., %d)\n", errno, file, name,
-				    XATTR_SIZE_MAX);
+				ERROR("Error %d: lgetxattr(%s, %s, ..., %d)\n",
+				    errno, file, name, XATTR_SIZE_MAX);
 				goto out;
 			}
 
@@ -510,8 +513,8 @@ getxattrs(void)
 
 				if (rnd_size != rc ||
 				    memcmp(verify_value, value, rnd_size)) {
-					fprintf(stderr, "Error %d: verify "
-					    "failed\nverify: %s\nvalue:  %s\n",
+					ERROR("Error %d: verify failed\n "
+					    "verify: %s\nvalue:  %s\n",
 					    EINVAL, verify_value, value);
 					goto out;
 				}
@@ -548,8 +551,8 @@ unlink_files(void)
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
 		rc = ENOMEM;
-		fprintf(stderr, "Error %d: malloc(%d) bytes for file name\n",
-			rc, PATH_MAX);
+		ERROR("Error %d: malloc(%d) bytes for file name\n",
+		    rc, PATH_MAX);
 		goto out;
 	}
 
@@ -563,7 +566,7 @@ unlink_files(void)
 
 		rc = unlink(file);
 		if ((rc == -1)  && (errno != ENOENT)) {
-			fprintf(stderr, "Error %d: unlink(%s)\n", errno, file);
+			ERROR("Error %d: unlink(%s)\n", errno, file);
 			return (errno);
 		}
 	}
