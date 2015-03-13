@@ -18,23 +18,31 @@
 #include <sys/time.h>
 #include <linux/limits.h>
 
-static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rk";
+extern char *program_invocation_short_name;
+
+#define ERROR(fmt, ...)                                                 \
+	fprintf(stderr, "%s: %s:%d: %s: " fmt "\n",                     \
+		program_invocation_short_name, __FILE__, __LINE__,      \
+		__func__, ## __VA_ARGS__);
+
+static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rRk";
 static const struct option longopts[] = {
-	{ "help",	no_argument,		0,	'h' },
-	{ "verbose",	no_argument,		0,	'v' },
-	{ "verify",	no_argument,		0,	'y' },
-	{ "nth",	required_argument,	0,	'n' },
-	{ "files",	required_argument,	0,	'f' },
-	{ "xattrs",	required_argument,	0,	'x' },
-	{ "size",	required_argument,	0,	's' },
-	{ "path",	required_argument,	0,	'p' },
-	{ "synccaches", no_argument,		0,	'c' },
-	{ "dropcaches",	no_argument,		0,	'd' },
-	{ "script",	required_argument,	0,	't' },
-	{ "seed",	required_argument,	0,	'e' },
-	{ "random",	no_argument,		0,	'r' },
-	{ "keep",	no_argument,		0,	'k' },
-	{ 0,		0,			0,	0   }
+	{ "help",		no_argument,		0,	'h' },
+	{ "verbose",		no_argument,		0,	'v' },
+	{ "verify",		no_argument,		0,	'y' },
+	{ "nth",		required_argument,	0,	'n' },
+	{ "files",		required_argument,	0,	'f' },
+	{ "xattrs",		required_argument,	0,	'x' },
+	{ "size",		required_argument,	0,	's' },
+	{ "path",		required_argument,	0,	'p' },
+	{ "synccaches", 	no_argument,		0,	'c' },
+	{ "dropcaches",		no_argument,		0,	'd' },
+	{ "script",		required_argument,	0,	't' },
+	{ "seed",		required_argument,	0,	'e' },
+	{ "random",		no_argument,		0,	'r' },
+	{ "randomvalue",	no_argument,		0,	'R' },
+	{ "keep",		no_argument,		0,	'k' },
+	{ 0,			0,			0,	0   }
 };
 
 static int verbose = 0;
@@ -46,6 +54,7 @@ static int files = 1000;
 static int xattrs = 1;
 static int size  = 1;
 static int size_is_random = 0;
+static int value_is_random = 0;
 static int keep_files = 0;
 static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
@@ -53,7 +62,7 @@ static char script[PATH_MAX] = "/bin/true";
 static int
 usage(int argc, char **argv) {
 	fprintf(stderr,
-	"usage: %s [-hvycdk] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
+	"usage: %s [-hvycdrRk] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
 	"       [-s <bytes>] [-p <path>] [-t <script> ]\n", argv[0]);
 	fprintf(stderr,
 	"  --help        -h           This help\n"
@@ -62,13 +71,14 @@ usage(int argc, char **argv) {
 	"  --nth         -n <nth>     Print every nth file\n"
 	"  --files       -f <files>   Set xattrs on N files\n"
 	"  --xattrs      -x <xattrs>  Set N xattrs on each file\n"
-	"  --size        -s <bytes>   Set N byters per xattr\n"
+	"  --size        -s <bytes>   Set N bytes per xattr\n"
 	"  --path        -p <path>    Path to files\n"
 	"  --synccaches  -c           Sync caches between phases\n"
 	"  --dropcaches  -d           Drop caches between phases\n"
 	"  --script      -t <script>  Exec script between phases\n"
 	"  --seed        -e <seed>    Random seed value\n"
 	"  --random      -r           Randomly sized xattrs [16-size]\n"
+	"  --randomvalue -R           Random xattr values\n"
 	"  --keep        -k           Don't unlink files\n\n");
 
 	return (0);
@@ -79,6 +89,7 @@ parse_args(int argc, char **argv)
 {
 	long seed = time(NULL);
 	int c;
+	int rc;
 
 	while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
 		switch (c) {
@@ -89,6 +100,11 @@ parse_args(int argc, char **argv)
 			break;
 		case 'y':
 			verify = 1;
+			if (value_is_random != 0) {
+				fprintf(stderr,
+				    "Error: -y and -R are incompatible.\n");
+				rc = 1;
+			}
 			break;
 		case 'n':
 			nth = strtol(optarg, NULL, 0);
@@ -120,6 +136,14 @@ parse_args(int argc, char **argv)
 		case 'r':
 			size_is_random = 1;
 			break;
+		case 'R':
+			value_is_random = 1;
+			if (verify != 0) {
+				fprintf(stderr,
+				    "Error: -y and -R are incompatible.\n");
+				rc = 1;
+			}
+			break;
 		case 'k':
 			keep_files = 1;
 			break;
@@ -129,26 +153,30 @@ parse_args(int argc, char **argv)
 		}
 	}
 
+	if (rc != 0)
+		return (rc);
+
 	srandom(seed);
 
 	if (verbose) {
-		fprintf(stdout, "verbose:    %d\n", verbose);
-		fprintf(stdout, "verify:     %d\n", verify);
-		fprintf(stdout, "nth:        %d\n", nth);
-		fprintf(stdout, "files:      %d\n", files);
-		fprintf(stdout, "xattrs:     %d\n", xattrs);
-		fprintf(stdout, "size:       %d\n", size);
-		fprintf(stdout, "path:       %s\n", path);
-		fprintf(stdout, "synccaches: %d\n", synccaches);
-		fprintf(stdout, "dropcaches: %d\n", dropcaches);
-		fprintf(stdout, "script:     %s\n", script);
-		fprintf(stdout, "seed:       %ld\n", seed);
-		fprintf(stdout, "random:     %d\n", size_is_random);
-		fprintf(stdout, "keep:       %d\n", keep_files);
+		fprintf(stdout, "verbose:          %d\n", verbose);
+		fprintf(stdout, "verify:           %d\n", verify);
+		fprintf(stdout, "nth:              %d\n", nth);
+		fprintf(stdout, "files:            %d\n", files);
+		fprintf(stdout, "xattrs:           %d\n", xattrs);
+		fprintf(stdout, "size:             %d\n", size);
+		fprintf(stdout, "path:             %s\n", path);
+		fprintf(stdout, "synccaches:       %d\n", synccaches);
+		fprintf(stdout, "dropcaches:       %d\n", dropcaches);
+		fprintf(stdout, "script:           %s\n", script);
+		fprintf(stdout, "seed:             %ld\n", seed);
+		fprintf(stdout, "random size:      %d\n", size_is_random);
+		fprintf(stdout, "random value:     %d\n", value_is_random);
+		fprintf(stdout, "keep:             %d\n", keep_files);
 		fprintf(stdout, "%s", "\n");
 	}
 
-	return (0);
+	return (rc);
 }
 
 static int
@@ -321,6 +349,29 @@ out:
 }
 
 static int
+get_random_bytes(char *buf, size_t bytes)
+{
+	int rand;
+	ssize_t bytes_read = 0;
+
+	rand = open("/dev/urandom", O_RDONLY);
+
+	if (rand < 0)
+		return rand;
+
+	while (bytes_read < bytes) {
+		ssize_t rc = read(rand, buf + bytes_read, bytes - bytes_read);
+		if (rc < 0)
+			break;
+		bytes_read += rc;
+	}
+
+	(void) close(rand);
+
+	return (bytes_read);
+}
+
+static int
 setxattrs(void)
 {
 	int i, j, rnd_size = size, shift, rc = 0;
@@ -358,8 +409,19 @@ setxattrs(void)
 				rnd_size = (random() % (size - 16)) + 16;
 
 			(void) sprintf(name, "user.%d", j);
-			shift = sprintf(value, "size=%d ", rnd_size);
-			memset(value + shift, 'x', XATTR_SIZE_MAX - shift);
+			if (value_is_random) {
+				rc = get_random_bytes(value, rnd_size);
+				if (rc < rnd_size) {
+					ERROR("Error %d: get_random_bytes() "
+					    "wanted %d got %d\n", errno,
+					    rnd_size, rc);
+					goto out;
+				}
+			} else {
+				shift = sprintf(value, "size=%d ", rnd_size);
+				memset(value + shift, 'x', XATTR_SIZE_MAX -
+				    shift);
+			}
 
 			rc = lsetxattr(file, name, value, rnd_size, 0);
 			if (rc == -1) {
