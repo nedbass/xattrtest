@@ -9,9 +9,13 @@
 #include <errno.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
+#include <attr/xattr.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <linux/limits.h>
 
 static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rk";
@@ -476,7 +480,6 @@ static int
 unlink_files(void)
 {
 	int i, rc;
-	char name[16];
 	char *file = NULL;
 	struct timeval start, stop, delta;
 
