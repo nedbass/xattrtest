@@ -58,6 +58,7 @@ static int value_is_random = 0;
 static int keep_files = 0;
 static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
+static char xattrbytes[XATTR_SIZE_MAX];
 
 static int
 usage(int argc, char **argv) {
@@ -100,11 +101,6 @@ parse_args(int argc, char **argv)
 			break;
 		case 'y':
 			verify = 1;
-			if (value_is_random != 0) {
-				fprintf(stderr,
-				    "Error: -y and -R are incompatible.\n");
-				rc = 1;
-			}
 			break;
 		case 'n':
 			nth = strtol(optarg, NULL, 0);
@@ -143,11 +139,6 @@ parse_args(int argc, char **argv)
 			break;
 		case 'R':
 			value_is_random = 1;
-			if (verify != 0) {
-				fprintf(stderr,
-				    "Error: -y and -R are incompatible.\n");
-				rc = 1;
-			}
 			break;
 		case 'k':
 			keep_files = 1;
@@ -413,19 +404,9 @@ setxattrs(void)
 				rnd_size = (random() % (size - 16)) + 16;
 
 			(void) sprintf(name, "user.%d", j);
-			if (value_is_random) {
-				rc = get_random_bytes(value, rnd_size);
-				if (rc < rnd_size) {
-					ERROR("Error %d: get_random_bytes() "
-					    "wanted %d got %d\n", errno,
-					    rnd_size, rc);
-					goto out;
-				}
-			} else {
-				shift = sprintf(value, "size=%d ", rnd_size);
-				memset(value + shift, 'x', XATTR_SIZE_MAX -
-				    shift);
-			}
+			shift = sprintf(value, "size=%d ", rnd_size);
+			memcpy(value + shift, xattrbytes,
+			    sizeof(xattrbytes) - shift);
 
 			rc = lsetxattr(file, name, value, rnd_size, 0);
 			if (rc == -1) {
@@ -458,7 +439,9 @@ getxattrs(void)
 	int i, j, rnd_size, shift, rc = 0;
 	char name[XATTR_NAME_MAX];
 	char *verify_value = NULL;
+	char *verify_string;
 	char *value = NULL;
+	char *value_string;
 	char *file = NULL;
 	struct timeval start, stop, delta;
 
@@ -477,6 +460,9 @@ getxattrs(void)
 			rc, XATTR_SIZE_MAX);
 		goto out;
 	}
+
+	verify_string = value_is_random ? "<random>" : verify_value;
+	value_string = value_is_random ? "<random>" : value;
 
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
@@ -504,20 +490,21 @@ getxattrs(void)
 				goto out;
 			}
 
-			if (verify) {
-				sscanf(value, "size=%d [a-z]", &rnd_size);
-				shift = sprintf(verify_value, "size=%d ",
-				    rnd_size);
-				memset(verify_value + shift, 'x',
-				    XATTR_SIZE_MAX - shift);
+			if (!verify)
+				continue;
 
-				if (rnd_size != rc ||
-				    memcmp(verify_value, value, rnd_size)) {
-					ERROR("Error %d: verify failed\n "
-					    "verify: %s\nvalue:  %s\n",
-					    EINVAL, verify_value, value);
-					goto out;
-				}
+			sscanf(value, "size=%d [a-z]", &rnd_size);
+			shift = sprintf(verify_value, "size=%d ",
+			    rnd_size);
+			memcpy(verify_value + shift, xattrbytes,
+			    sizeof(xattrbytes) - shift);
+
+			if (rnd_size != rc ||
+			    memcmp(verify_value, value, rnd_size)) {
+				ERROR("Error %d: verify failed\n "
+				    "verify: %s\n value:  %s\n", EINVAL,
+				    verify_string, value_string);
+				goto out;
 			}
 		}
 	}
@@ -592,6 +579,19 @@ main(int argc, char **argv)
 	rc = parse_args(argc, argv);
 	if (rc)
 		return (rc);
+
+	if (value_is_random) {
+		size_t rndsz = sizeof(xattrbytes);
+
+		rc = get_random_bytes(xattrbytes, rndsz);
+		if (rc < rndsz) {
+			ERROR("Error %d: get_random_bytes() wanted %zd "
+			    "got %d\n", errno, rndsz, rc);
+			return (rc);
+		}
+	} else {
+		memset(xattrbytes, 'x', sizeof(xattrbytes));
+	}
 
 	rc = create_files();
 	if (rc)
