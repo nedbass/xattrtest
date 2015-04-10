@@ -284,12 +284,22 @@ timeval_sub(struct timeval *delta, struct timeval *tv1, struct timeval *tv2)
 	    tv1->tv_usec - tv2->tv_usec);
 }
 
+static double
+timeval_sub_seconds(struct timeval *tv1, struct timeval *tv2)
+{
+	struct timeval delta;
+
+	timeval_sub(&delta, tv1, tv2);
+	return (double)delta.tv_usec / USEC_PER_SEC + delta.tv_sec;
+}
+
 static int
 create_files(void)
 {
 	int i, rc;
 	char *file = NULL;
-	struct timeval start, stop, delta;
+	struct timeval start, stop;
+	double seconds;
 
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
@@ -331,9 +341,9 @@ create_files(void)
 	}
 
 	(void) gettimeofday(&stop, NULL);
-	timeval_sub(&delta, &stop, &start);
-	fprintf(stdout, "create:   %d.%d seconds\n",
-	    (int)delta.tv_sec, (int)delta.tv_usec);
+	seconds = timeval_sub_seconds(&stop, &start);
+	fprintf(stdout, "create:   %f seconds %f creates/second\n",
+	    seconds, files / seconds);
 
 	rc = post_hook("post");
 out:
@@ -373,7 +383,8 @@ setxattrs(void)
 	char name[XATTR_NAME_MAX];
 	char *value = NULL;
 	char *file = NULL;
-	struct timeval start, stop, delta;
+	struct timeval start, stop;
+	double seconds;
 
 	value = malloc(XATTR_SIZE_MAX);
 	if (value == NULL) {
@@ -418,9 +429,9 @@ setxattrs(void)
 	}
 
 	(void) gettimeofday(&stop, NULL);
-	timeval_sub(&delta, &stop, &start);
-	fprintf(stdout, "setxattr: %d.%d seconds\n",
-	    (int)delta.tv_sec, (int)delta.tv_usec);
+	seconds = timeval_sub_seconds(&stop, &start);
+	fprintf(stdout, "setxattr: %f seconds %f setxattrs/second\n",
+	    seconds, (files * xattrs) / seconds);
 
 	rc = post_hook("post");
 out:
@@ -443,7 +454,8 @@ getxattrs(void)
 	char *value = NULL;
 	char *value_string;
 	char *file = NULL;
-	struct timeval start, stop, delta;
+	struct timeval start, stop;
+	double seconds;
 
 	verify_value = malloc(XATTR_SIZE_MAX);
 	if (verify_value == NULL) {
@@ -510,9 +522,9 @@ getxattrs(void)
 	}
 
 	(void) gettimeofday(&stop, NULL);
-	timeval_sub(&delta, &stop, &start);
-	fprintf(stdout, "getxattr: %d.%d seconds\n",
-	    (int)delta.tv_sec, (int)delta.tv_usec);
+	seconds = timeval_sub_seconds(&stop, &start);
+	fprintf(stdout, "getxattr: %f seconds %f getxattrs/second\n",
+	    seconds, (files * xattrs) / seconds);
 
 	rc = post_hook("post");
 out:
@@ -533,7 +545,8 @@ unlink_files(void)
 {
 	int i, rc;
 	char *file = NULL;
-	struct timeval start, stop, delta;
+	struct timeval start, stop;
+	double seconds;
 
 	file = malloc(PATH_MAX);
 	if (file == NULL) {
@@ -559,9 +572,9 @@ unlink_files(void)
 	}
 
 	(void) gettimeofday(&stop, NULL);
-	timeval_sub(&delta, &stop, &start);
-	fprintf(stdout, "unlink:   %d.%d seconds\n",
-	    (int)delta.tv_sec, (int)delta.tv_usec);
+	seconds = timeval_sub_seconds(&stop, &start);
+	fprintf(stdout, "unlink:   %f seconds %f unlinks/second\n",
+	    seconds, files / seconds);
 
 	rc = post_hook("post");
 out:
