@@ -25,7 +25,7 @@ extern char *program_invocation_short_name;
 		program_invocation_short_name, __FILE__, __LINE__,      \
 		__func__, ## __VA_ARGS__);
 
-static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rRk";
+static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rRko:";
 static const struct option longopts[] = {
 	{ "help",		no_argument,		0,	'h' },
 	{ "verbose",		no_argument,		0,	'v' },
@@ -42,6 +42,7 @@ static const struct option longopts[] = {
 	{ "random",		no_argument,		0,	'r' },
 	{ "randomvalue",	no_argument,		0,	'R' },
 	{ "keep",		no_argument,		0,	'k' },
+	{ "only",		required_argument,	0,	'o' },
 	{ 0,			0,			0,	0   }
 };
 
@@ -56,15 +57,27 @@ static int size = 6;
 static int size_is_random = 0;
 static int value_is_random = 0;
 static int keep_files = 0;
+static int phase = 0;
 static char path[PATH_MAX] = "/tmp/xattrtest";
 static char script[PATH_MAX] = "/bin/true";
 static char xattrbytes[XATTR_SIZE_MAX];
+
+enum phases {
+	PHASE_ALL = 0,
+	PHASE_CREATE,
+	PHASE_SETXATTR,
+	PHASE_GETXATTR,
+	PHASE_UNLINK,
+	PHASE_INVAL
+};
 
 static int
 usage(int argc, char **argv) {
 	fprintf(stderr,
 	"usage: %s [-hvycdrRk] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
-	"       [-s <bytes>] [-p <path>] [-t <script> ]\n", argv[0]);
+	"       [-s <bytes>] [-p <path>] [-t <script> ] [-o <phase>]\n",
+	argv[0]);
+
 	fprintf(stderr,
 	"  --help        -h           This help\n"
 	"  --verbose     -v           Increase verbosity\n"
@@ -80,7 +93,10 @@ usage(int argc, char **argv) {
 	"  --seed        -e <seed>    Random seed value\n"
 	"  --random      -r           Randomly sized xattrs [16-size]\n"
 	"  --randomvalue -R           Random xattr values\n"
-	"  --keep        -k           Don't unlink files\n\n");
+	"  --keep        -k           Don't unlink files\n"
+	"  --only        -o <num>     Only run phase N\n"
+	"                             0=all, 1=create, 2=setxattr,\n"
+	"                             3=getxattr, 4=unlink\n\n");
 
 	return (0);
 }
@@ -143,6 +159,15 @@ parse_args(int argc, char **argv)
 		case 'k':
 			keep_files = 1;
 			break;
+		case 'o':
+			phase = strtol(optarg, NULL, 0);
+			if (phase <= PHASE_ALL || phase >= PHASE_INVAL) {
+				fprintf(stderr, "Error: the -o value must be "
+				    "greater than %d and less than %d\n",
+				    PHASE_ALL, PHASE_INVAL);
+				rc = 1;
+			}
+			break;
 		default:
 			rc = 1;
 			break;
@@ -169,6 +194,7 @@ parse_args(int argc, char **argv)
 		fprintf(stdout, "random size:      %d\n", size_is_random);
 		fprintf(stdout, "random value:     %d\n", value_is_random);
 		fprintf(stdout, "keep:             %d\n", keep_files);
+		fprintf(stdout, "only:             %d\n", phase);
 		fprintf(stdout, "%s", "\n");
 	}
 
@@ -606,19 +632,25 @@ main(int argc, char **argv)
 		memset(xattrbytes, 'x', sizeof(xattrbytes));
 	}
 
-	rc = create_files();
-	if (rc)
-		return (rc);
+	if (phase == PHASE_ALL || phase == PHASE_CREATE) {
+		rc = create_files();
+		if (rc)
+			return (rc);
+	}
 
-	rc = setxattrs();
-	if (rc)
-		return (rc);
+	if (phase == PHASE_ALL || phase == PHASE_SETXATTR) {
+		rc = setxattrs();
+		if (rc)
+			return (rc);
+	}
 
-	rc = getxattrs();
-	if (rc)
-		return (rc);
+	if (phase == PHASE_ALL || phase == PHASE_GETXATTR) {
+		rc = getxattrs();
+		if (rc)
+			return (rc);
+	}
 
-	if (!keep_files) {
+	if (!keep_files && (phase == PHASE_ALL || phase == PHASE_UNLINK)) {
 		rc = unlink_files();
 		if (rc)
 			return (rc);
