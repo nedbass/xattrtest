@@ -1,0 +1,5 @@
+language: c
+script:
+    - make checkstyle
+    - make
+    - mkdir /tmp/xattrtest-$$ && ./xattrtest -p /tmp/xattrtest-$$
